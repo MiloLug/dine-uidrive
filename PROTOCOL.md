@@ -285,8 +285,8 @@ reply shape and the same verb names, so a check reads the same against both. Its
 - `activate` gives a view a tap at its centre through Java's dispatch, an EditText GTK's focus, and
   a dialog's button or row its activation.
 - `insert` also takes `["LABEL", "TEXT", KEYVAL, KEYCODE]`: that key follows the text in one
-  request. Its array must be spaced as Python's `json.dumps` writes it (`["a", "b"]`); other
-  spacing closes the connection unanswered.
+  request. A space before a `,` or the `]` of its array closes the connection unanswered;
+  `json.dumps`'s `["a", "b"]` and the compact `["a","b"]` both work.
 - `back` is Android's Back, with no accessibility escape.
 - `settle 0` closes unanswered, and every action's result is a bool.
 - `touch down|move|up|cancel SEQ X Y`: SEQ is any integer naming the pointer (0 is the mouse), X and
