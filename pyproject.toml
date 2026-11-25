@@ -1,0 +1,25 @@
+[project]
+name = "uidrive"
+version = "0.1.0"
+description = "In-process UI automation for iOS apps: an injected agent dylib and its Python client"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "pymobiledevice3>=11.31",
+]
+
+[project.scripts]
+uidrive = "uidrive.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+constraint-dependencies = ["pymobiledevice3==11.32.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
