@@ -183,6 +183,8 @@ to (PROTOCOL.md, "Window routing").
   launches; a key after the app hid the keyboard may type nothing (PROTOCOL.md, `key` and "Keys").
   Of the modifiers, only shift was measured; key repeat wasn't.
 - The agent serves one connection at a time, so a request waits for a gesture before it to finish.
+- The agent binds its port without `SO_REUSEPORT`: give apps that run with the agent at the same
+  time their own ports (`--port` of `launch` and `ask`).
 - `ask` uses usbmux's first device and `launch` and `screenshot` tunneld's first: with two phones
   attached they can reach different ones.
 - The agent's port has no authentication: any process that reaches `127.0.0.1:UIDRIVE_PORT` on the
