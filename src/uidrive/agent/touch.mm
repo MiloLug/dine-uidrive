@@ -70,9 +70,6 @@ const Hid &HidApi() {
   return api;
 }
 
-// True: context id 0, leaving the choice of window to UIKit.
-constexpr bool kProbeContextZero = false;
-
 // A hand event with one finger child per entry, laid out as WebKit's HIDEventGenerator builds it;
 // finger ids start at 2, as WebKit's do.
 IOHIDEventRef HandEvent(const std::vector<Finger> &fingers) {
@@ -104,9 +101,10 @@ IOHIDEventRef HandEvent(const std::vector<Finger> &fingers) {
   return hand;
 }
 
-// Main thread; takes ownership of the event.
+// Main thread; takes ownership of the event. UIKit drops an event whose context id is 0 rather than
+// pick a window for it, so every event names one.
 void Enqueue(IOHIDEventRef ev, uint32_t ctx) {
-  HidApi().digitizerInfo(ev, kProbeContextZero ? 0 : ctx, 0, 0, nullptr, 0, 0);
+  HidApi().digitizerInfo(ev, ctx, 0, 0, nullptr, 0, 0);
   ((void (*)(id, SEL, IOHIDEventRef))objc_msgSend)(UIApplication.sharedApplication,
                                                    NSSelectorFromString(@"_enqueueHIDEvent:"), ev);
   CFRelease(ev);

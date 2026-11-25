@@ -117,12 +117,14 @@ action is asked for, nothing has run and `settle` waits the full MS.
 `touch` and `gesture` send IOHID digitizer events into UIKit's event queue
 (`-[UIApplication _enqueueHIDEvent:]`), laid out as WebKit's `HIDEventGenerator` lays them out. UIKit
 delivers them on the main thread as it delivers a finger's. On iOS 27.2 a tap at a point, the
-interactive left-edge pop, a list scroll, a `UIGestureRecognizer` and software keyboard keys work
-this way.
+interactive left-edge pop, a list scroll and a fling (UIKit takes the gesture's speed), a
+`UIGestureRecognizer`, software keyboard keys, and two fingers down at once (two `touch down`s)
+work this way.
 
-Each event is a hand event with one child per finger it carries. A finger that changes gets a mask:
-Touch and Identity when it goes down or lifts, Position and Attribute when it moves, Cancel on a
-cancel. Fingers that stay down and don't change ride along with mask 0.
+Each event is a hand event with one child per finger it carries; a child's index and identity are
+FINGER + 2. A finger that changes gets a mask: Touch and Identity when it goes down or lifts,
+Position and Attribute when it moves, Cancel on a cancel. Fingers that stay down and don't change
+ride along with mask 0.
 
 The private symbols these verbs use are looked up when the first one runs. When one is missing,
 both verbs reply `missing: <names>`, from `IOHIDEventCreateDigitizerEvent`,
@@ -209,15 +211,23 @@ and have a context id, from the highest level down, and within a level the later
 first whose `hitTest:withEvent:` returns a view for the point gets the touch; when none does, the
 reply is `no window takes the point X,Y`.
 
-On iOS 27.2 a touch on a keyboard key types when it carries `UIRemoteKeyboardWindow`'s context id.
-With the app window's id the keyboard logs
-`Touch event for active input modality has no provenance` and types nothing.
+Every event carries a context id: UIKit drops an event with id 0 instead of picking a window
+for it.
+
+On iOS 27.2, with the software keyboard up:
+
+- A key's point routes to `UIRemoteKeyboardWindow` and types. The keyboard types only for a touch
+  carrying that window's context id; with the app window's id it logs
+  `Touch event for active input modality has no provenance` and types nothing.
+- A control above the keyboard, and empty app area, route to the app's window: the control acts,
+  the empty point does nothing. The keyboard logs the same `no provenance` line for these touches,
+  without harm.
+- `UITextEffectsWindow` covers the screen at level 1, but its hit test took neither an empty point
+  nor a button's, so the routing passed it by. A touch sent to it by WIN reached the app's window
+  through UIKit.
 
 ## Not settled yet
 
-- Whether this routing sends a touch on a keyboard key to `UIRemoteKeyboardWindow`, and a touch
-  on a control above the keyboard to the app's window.
-- Two fingers down at once: the finger ids and the mask that unchanged fingers carry.
 - Hardware keyboard events (a `key` verb).
 
 ## dine-atl's gtk agent
