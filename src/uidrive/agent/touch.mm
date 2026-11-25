@@ -1,4 +1,4 @@
-// Real input: IOHID digitizer events into UIKit's event queue, the window list and touch routing.
+// Real input: IOHID digitizer and keyboard events into UIKit's event queue, the window list and routing.
 #include <dlfcn.h>
 #include <mach/mach_time.h>
 #include <math.h>
@@ -25,8 +25,8 @@ enum : uint32_t {
   kFieldQualityRadiiAccuracy = 0xB001A,
 };
 
-// Private API, looked up once: a missing piece makes touch and gesture fail with its name instead of
-// crashing the app.
+// Private API, looked up once: a missing piece makes the verbs that need it fail with its name instead
+// of crashing the app.
 struct Hid {
   IOHIDEventRef (*digitizer)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double,
                              double, double, double, boolean_t, boolean_t, uint32_t);
@@ -36,7 +36,9 @@ struct Hid {
   void (*setFloat)(IOHIDEventRef, uint32_t, double);
   void (*append)(IOHIDEventRef, IOHIDEventRef, uint32_t);
   void (*digitizerInfo)(IOHIDEventRef, uint32_t, uint8_t, uint8_t, CFStringRef, CFTimeInterval, float);
+  IOHIDEventRef (*keyboard)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, boolean_t, uint32_t);
   NSString *missing;
+  NSString *keyMissing;
 };
 
 const Hid &HidApi() {
@@ -44,27 +46,34 @@ const Hid &HidApi() {
     Hid h = {};
     void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
     void *bbs = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
-    NSMutableArray *missing = [NSMutableArray array];
-    auto sym = [&](void *lib, const char *name) {
+    NSMutableArray *touch = [NSMutableArray array], *key = [NSMutableArray array], *both = [NSMutableArray array];
+    auto sym = [&](void *lib, const char *name, NSMutableArray *missing) {
       void *p = lib ? dlsym(lib, name) : nullptr;
       if (!p) [missing addObject:@(name)];
       return p;
     };
-    h.digitizer = (decltype(h.digitizer))sym(iokit, "IOHIDEventCreateDigitizerEvent");
-    h.finger = (decltype(h.finger))sym(iokit, "IOHIDEventCreateDigitizerFingerEvent");
-    h.setInt = (decltype(h.setInt))sym(iokit, "IOHIDEventSetIntegerValue");
-    h.setFloat = (decltype(h.setFloat))sym(iokit, "IOHIDEventSetFloatValue");
-    h.append = (decltype(h.append))sym(iokit, "IOHIDEventAppendEvent");
-    h.digitizerInfo = (decltype(h.digitizerInfo))sym(bbs, "BKSHIDEventSetDigitizerInfo");
+    h.digitizer = (decltype(h.digitizer))sym(iokit, "IOHIDEventCreateDigitizerEvent", touch);
+    h.finger = (decltype(h.finger))sym(iokit, "IOHIDEventCreateDigitizerFingerEvent", touch);
+    h.setInt = (decltype(h.setInt))sym(iokit, "IOHIDEventSetIntegerValue", touch);
+    h.setFloat = (decltype(h.setFloat))sym(iokit, "IOHIDEventSetFloatValue", touch);
+    h.append = (decltype(h.append))sym(iokit, "IOHIDEventAppendEvent", touch);
+    h.keyboard = (decltype(h.keyboard))sym(iokit, "IOHIDEventCreateKeyboardEvent", key);
+    h.digitizerInfo = (decltype(h.digitizerInfo))sym(bbs, "BKSHIDEventSetDigitizerInfo", both);
     // No message to UIKit classes here: it would run their +initialize on the serve thread, possibly
     // before UIApplicationMain.
     auto method = [&](const char *cls, const char *sel, NSString *name) {
       Class c = objc_getClass(cls);
-      if (!c || !class_getInstanceMethod(c, sel_registerName(sel))) [missing addObject:name];
+      if (!c || !class_getInstanceMethod(c, sel_registerName(sel))) [both addObject:name];
     };
     method("UIApplication", "_enqueueHIDEvent:", @"-[UIApplication _enqueueHIDEvent:]");
     method("UIWindow", "_contextId", @"-[UIWindow _contextId]");
-    h.missing = missing.count ? [missing componentsJoinedByString:@", "] : nil;
+    Class window = objc_getClass("UIWindow");
+    if (!window || !class_getInstanceMethod(window, sel_registerName("firstResponder")))
+      [key addObject:@"-[UIWindow firstResponder]"];
+    [touch addObjectsFromArray:both];
+    [key addObjectsFromArray:both];
+    h.missing = touch.count ? [touch componentsJoinedByString:@", "] : nil;
+    h.keyMissing = key.count ? [key componentsJoinedByString:@", "] : nil;
     return h;
   }();
   return api;
@@ -119,16 +128,22 @@ bool OnScreen(CGPoint p, CGRect screen) {
   return p.x >= 0 && p.y >= 0 && p.x <= screen.size.width && p.y <= screen.size.height;
 }
 
-// The topmost visible window whose hit test takes the screen point, in UIKit's stacking order.
-UIWindow *Route(CGPoint p) {
+// The visible windows that take events, topmost first in UIKit's stacking order.
+NSArray<UIWindow *> *Stacked() {
   NSArray<UIWindow *> *windows = [AllWindows().reverseObjectEnumerator.allObjects
       sortedArrayWithOptions:NSSortStable
              usingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
                if (a.windowLevel == b.windowLevel) return NSOrderedSame;
                return a.windowLevel > b.windowLevel ? NSOrderedAscending : NSOrderedDescending;
              }];
-  for (UIWindow *w in windows) {
-    if (w.hidden || w.alpha <= 0.01 || !ContextId(w)) continue;
+  return [windows filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(UIWindow *w, NSDictionary *) {
+                    return !w.hidden && w.alpha > 0.01 && w.userInteractionEnabled && ContextId(w);
+                  }]];
+}
+
+// The topmost window whose hit test takes the screen point.
+UIWindow *Route(CGPoint p) {
+  for (UIWindow *w in Stacked()) {
     @try {
       if ([w hitTest:[w convertPoint:p fromCoordinateSpace:w.screen.coordinateSpace] withEvent:nil]) return w;
     } @catch (NSException *) {
@@ -339,6 +354,92 @@ void Gesture(int fd, NSString *json) {
   Reply(fd, @{@"ok": @YES, @"window": cls, @"ctx": @(ctx)});
 }
 
+// Main thread. UIKit drops a text input's keys that name the app's window: they go to the first window
+// of the routing order, the keyboard's unless the app stacks one above it. Others go to the key window.
+UIWindow *KeyTarget() {
+  UIWindow *key = KeyWindow();
+  id responder = ((id (*)(id, SEL))objc_msgSend)(key, sel_registerName("firstResponder"));
+  if (![responder conformsToProtocol:@protocol(UIKeyInput)]) return key;
+  return Stacked().firstObject ?: key;
+}
+
+// Serve thread only: the context id each held key went down with, by usage.
+uint32_t gKeyCtx[256];
+
+// A modifier flag and the key that holds it, as WebKit sends modifiers: their own key events.
+const struct {
+  NSInteger flag;
+  uint32_t usage;
+} kModifiers[] = {{1 << 17, 225}, {1 << 18, 224}, {1 << 19, 226}, {1 << 20, 227}};
+
+void Key(int fd, NSArray<NSString *> *words) {
+  NSUInteger phase = words.count >= 2 ? [@[@"down", @"up"] indexOfObject:words[1]] : NSNotFound;
+  if (words.count < 3 || words.count > 4 || phase == NSNotFound) return Fail(fd, @"usage: key down|up USAGE [MODIFIERS]");
+  bool down = phase == 0;
+  if (!Digits(words[2]) || words[2].integerValue < 1 || words[2].integerValue > 255)
+    return Fail(fd, [NSString stringWithFormat:@"bad usage %@: a HID usage on page 7, 1 to 255", words[2]]);
+  uint32_t usage = (uint32_t)words[2].integerValue;
+  NSInteger flags = 0, all = 0;
+  for (const auto &m : kModifiers) all |= m.flag;
+  if (words.count >= 4) {
+    flags = Digits(words[3]) ? words[3].integerValue : -1;
+    if (flags < 0 || (flags & ~all))
+      return Fail(fd, [NSString stringWithFormat:@"bad modifiers %@: shift 131072, control 262144, option 524288, "
+                                                 @"command 1048576, or their sum",
+                                                 words[3]]);
+  }
+  const Hid &h = HidApi();
+  if (h.keyMissing) return Fail(fd, [@"missing: " stringByAppendingString:h.keyMissing]);
+
+  std::vector<uint32_t> usages;
+  if (down) {
+    for (const auto &m : kModifiers)
+      if (flags & m.flag) usages.push_back(m.usage);
+    usages.push_back(usage);
+  } else {
+    usages.push_back(usage);
+    for (auto m = std::rbegin(kModifiers); m != std::rend(kModifiers); ++m)
+      if (flags & m->flag) usages.push_back(m->usage);
+  }
+  std::vector<IOHIDEventRef> events;
+  for (uint32_t u : usages) {
+    IOHIDEventRef ev = h.keyboard(kCFAllocatorDefault, mach_absolute_time(), 7, u, down, 0);
+    if (!ev) {
+      for (IOHIDEventRef e : events) CFRelease(e);
+      return Fail(fd, @"IOHID made no event");
+    }
+    events.push_back(ev);
+  }
+
+  // An up goes where its down went: a Return that ends the text input mustn't leave the key held in
+  // the keyboard.
+  std::vector<uint32_t> held;
+  for (uint32_t u : usages) held.push_back(down ? 0 : gKeyCtx[u]);
+  __block NSString *error = nil;
+  __block uint32_t target = 0;
+  OnMain(^{
+    UIWindow *w = KeyTarget();
+    target = ContextId(w);
+    if (!target) {
+      error = w ? [NSString stringWithFormat:@"the window %@ has no context id", NSStringFromClass(w.class)]
+                : @"no key window";
+      return;
+    }
+    if (down) ActionAsked();
+    uint32_t ctx = target;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      for (size_t i = 0; i < events.size(); i++) Enqueue(events[i], held[i] ?: ctx);
+      if (!down) ActionRan(@YES);
+    });
+  });
+  if (error) {
+    for (IOHIDEventRef e : events) CFRelease(e);
+    return Fail(fd, error);
+  }
+  for (uint32_t u : usages) gKeyCtx[u] = down ? target : 0;
+  Reply(fd, @{@"ok": @YES});
+}
+
 void Windows(int fd) {
   __block NSMutableArray *rows = [NSMutableArray array];
   OnMain(^{
@@ -382,6 +483,8 @@ bool HandleTouch(int fd, NSString *line) {
     Touch(fd, words);
   else if ([words[0] isEqualToString:@"gesture"])
     Gesture(fd, words.count > 1 ? [line substringFromIndex:words[0].length + 1] : nil);
+  else if ([words[0] isEqualToString:@"key"])
+    Key(fd, words);
   else
     return false;
   return true;

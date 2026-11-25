@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from uidrive.client import AgentClosed, AgentDown, AgentError, AgentTimeout, Interrupted, gesture_line, request
+from uidrive.client import KEYS, AgentClosed, AgentDown, AgentError, AgentTimeout, Interrupted, gesture_line, request
 
 
 @pytest.fixture
@@ -115,3 +115,12 @@ def test_connect_errors_propagate():
 def test_gesture_line():
     assert gesture_line([[(1, 2, 0), (3, 4, 60)]]) == 'gesture {"fingers":[[[1,2,0],[3,4,60]]]}'
     assert gesture_line([[(1, 2, 0), (3, 4, 60)]], window=2) == 'gesture {"fingers":[[[1,2,0],[3,4,60]]],"window":2}'
+
+
+def test_keys_table():
+    assert KEYS["return"] == 40
+    assert KEYS["a"] == 4
+    assert KEYS["z"] == 29
+    assert KEYS["1"] == 30
+    assert KEYS["0"] == 39
+    assert KEYS["up"] == 82

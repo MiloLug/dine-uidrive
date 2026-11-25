@@ -84,3 +84,13 @@ def gesture_line(paths: list[list[tuple[float, float, int]]], window: int | None
     gesture's start. `window` None -> no window index; the agent picks the window."""
     return "gesture " + json.dumps({"fingers": paths} | ({"window": window} if window is not None else {}),
                                    separators=(",", ":"))
+
+
+# Key names to HID usages on page 7 (Keyboard/Keypad), for `key down|up USAGE`.
+KEYS: dict[str, int] = {
+    "return": 40, "escape": 41, "backspace": 42, "tab": 43, "space": 44,
+    "right": 79, "left": 80, "down": 81, "up": 82,
+    **{chr(ord("a") + i): 4 + i for i in range(26)},
+    **{str(n): 29 + n for n in range(1, 10)},
+    "0": 39,
+}
