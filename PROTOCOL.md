@@ -283,16 +283,17 @@ dine-atl's gtk build (Android Translation Layer on Linux) carries an agent with 
 reply shape and the same verb names, so a check reads the same against both. Its differences:
 
 - Transport: a Unix socket at the path in `ATL_DBG_AGENT`, with no read or write timeout; a request
-  line is at most 4095 bytes.
+  line is at most 4095 bytes, and a longer one gets `the request is over 4095 bytes` once its `\n`
+  arrives.
 - `ls` and `settle` give `labels` with no `values` or `frames`. The labels are the shown text of
   the app window, then of the other toplevels.
 - `activate` gives a view a tap at its centre through Java's dispatch, an EditText GTK's focus, and
   a dialog's button or row its activation.
 - `insert` also takes `["LABEL", "TEXT", KEYVAL, KEYCODE]`: that key follows the text in one
-  request. A space before a `,` or the `]` of its array closes the connection unanswered;
+  request. A space before a `,` or the `]` of its array gets the usage error;
   `json.dumps`'s `["a", "b"]` and the compact `["a","b"]` both work.
 - `back` is Android's Back, with no accessibility escape.
-- `settle 0` closes unanswered, and every action's result is a bool.
+- Every action's result is a bool.
 - `touch down|move|up|cancel SEQ X Y`: SEQ is any integer naming the pointer (0 is the mouse), X and
   Y are pixels in the app window, and there is no WIN. The event runs before the reply,
   `{"ok": true, "claimed": bool}`, where `claimed` says whether the gesture is Java's.
@@ -300,6 +301,7 @@ reply shape and the same verb names, so a check reads the same against both. Its
   bits; reply `{"ok": true, "handled": bool}`.
 - Two more verbs: `at N "LABEL"` gives element N's centre, `{"x", "y"}` in app window pixels, and
   `state N "LABEL"` gives `{"sensitive", "focused"}`.
-- No `action`, `appearance`, `windows` or `gesture`.
-- A line of any verb that doesn't parse, and an unknown verb, close the connection unanswered: no
-  `usage:` or `unknown verb` error.
+- No `action`, `appearance`, `windows` or `gesture`: they get `unknown verb`. That error cuts a
+  word at 32 code points, not UTF-16 units.
+- `usage:` errors give this agent's grammar, `insert`'s as
+  `insert N ["LABEL", "TEXT"[, KEYVAL, KEYCODE]]`. `touch` and `key` have no finer errors.
