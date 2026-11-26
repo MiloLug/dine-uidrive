@@ -171,8 +171,6 @@ Target PickWindow(NSInteger win, CGPoint p) {
   return {ctx, NSStringFromClass(w.class), nil};
 }
 
-void Fail(int fd, NSString *error) { Reply(fd, @{@"error": error}); }
-
 // A finite number in C notation, whatever locale the app set.
 bool Number(NSString *s, double *out) {
   const char *c = s.UTF8String;

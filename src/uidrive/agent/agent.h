@@ -13,6 +13,7 @@ void OnMain(void (^block)(void));
 
 // One JSON line, then the caller closes the connection.
 void Reply(int fd, NSDictionary *obj);
+void Fail(int fd, NSString *error);
 
 UIWindow *KeyWindow();
 // Every window, internal ones (the keyboard's) included, in UIKit's order.
@@ -28,7 +29,7 @@ void ActionRan(id result);
 // An index or a count: 1 to 8 ASCII digits.
 bool Digits(NSString *s);
 
-// Each returns whether the line was its verb; a verb it takes but can't parse may close unanswered.
+// Each returns whether the line's first word is one of its verbs, and replies to every line it takes.
 bool HandleAx(int fd, NSString *line);
 bool HandleTouch(int fd, NSString *line);
 

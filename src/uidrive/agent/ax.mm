@@ -220,6 +220,17 @@ void Settle(int fd, NSInteger ms) {
               @"ran": @(result != nil), @"result": result ?: NSNull.null});
 }
 
+void Ls(int fd) {
+  __block NSArray *labels, *values, *frames;
+  OnMain(^{
+    Walk();
+    labels = gLabels;
+    values = gValues;
+    frames = gFrames;
+  });
+  Reply(fd, @{@"labels": labels, @"values": values, @"frames": frames});
+}
+
 id Json(NSArray<NSString *> *words, NSUInteger from) {
   NSString *json = [[words subarrayWithRange:NSMakeRange(from, words.count - from)] componentsJoinedByString:@" "];
   return [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding]
@@ -254,17 +265,10 @@ bool Digits(NSString *s) {
 bool HandleAx(int fd, NSString *line) {
   NSArray<NSString *> *words = [line componentsSeparatedByString:@" "];
   NSString *verb = words[0];
-  if ([line isEqualToString:@"ls"]) {
-    __block NSArray *labels, *values, *frames;
-    OnMain(^{
-      Walk();
-      labels = gLabels;
-      values = gValues;
-      frames = gFrames;
-    });
-    Reply(fd, @{@"labels": labels, @"values": values, @"frames": frames});
-  } else if ([line isEqualToString:@"back"]) {
-    AskAndRun(fd, ^id { return Escape(); });
+  if ([verb isEqualToString:@"ls"]) {
+    words.count == 1 ? Ls(fd) : Fail(fd, @"usage: ls");
+  } else if ([verb isEqualToString:@"back"]) {
+    words.count == 1 ? AskAndRun(fd, ^id { return Escape(); }) : Fail(fd, @"usage: back");
   } else if ([verb isEqualToString:@"appearance"]) {
     NSDictionary *styles = @{@"light": @(UIUserInterfaceStyleLight), @"dark": @(UIUserInterfaceStyleDark),
                              @"system": @(UIUserInterfaceStyleUnspecified)};
@@ -274,19 +278,32 @@ bool HandleAx(int fd, NSString *line) {
         KeyWindow().overrideUserInterfaceStyle = (UIUserInterfaceStyle)style.integerValue;
         return @YES;
       });
+    else
+      Fail(fd, @"usage: appearance light|dark|system");
   } else if ([verb isEqualToString:@"settle"]) {
-    if (words.count == 2 && Digits(words[1])) Settle(fd, MIN(words[1].integerValue, 10000));
+    if (words.count == 2 && Digits(words[1]))
+      Settle(fd, MIN(words[1].integerValue, 10000));
+    else
+      Fail(fd, @"usage: settle MS");
   } else if ([verb isEqualToString:@"action"]) {
     id name = words.count >= 2 ? Json(words, 1) : nil;
-    if ([name isKindOfClass:NSString.class]) AskAndRun(fd, ^id { return RunAction(name); });
+    if ([name isKindOfClass:NSString.class])
+      AskAndRun(fd, ^id { return RunAction(name); });
+    else
+      Fail(fd, @"usage: action \"NAME\"");
   } else if ([verb isEqualToString:@"activate"]) {
     id label = words.count >= 3 && Digits(words[1]) ? Json(words, 2) : nil;
-    if ([label isKindOfClass:NSString.class]) Activate(fd, words[1].integerValue, label);
+    if ([label isKindOfClass:NSString.class])
+      Activate(fd, words[1].integerValue, label);
+    else
+      Fail(fd, @"usage: activate N \"LABEL\"");
   } else if ([verb isEqualToString:@"insert"]) {
     id pair = words.count >= 3 && Digits(words[1]) ? Json(words, 2) : nil;
     if ([pair isKindOfClass:NSArray.class] && [pair count] == 2 && [pair[0] isKindOfClass:NSString.class] &&
         [pair[1] isKindOfClass:NSString.class])
       Insert(fd, words[1].integerValue, pair[0], pair[1]);
+    else
+      Fail(fd, @"usage: insert N [\"LABEL\", \"TEXT\"]");
   } else {
     return false;
   }

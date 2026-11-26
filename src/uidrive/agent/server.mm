@@ -32,10 +32,13 @@ void Reply(int fd, NSDictionary *obj) {
   }
 }
 
+void Fail(int fd, NSString *error) { Reply(fd, @{@"error": error}); }
+
 namespace {
 
-// Of any length: activate and insert carry whole labels and texts, gesture its paths.
-NSString *ReadLine(int fd) {
+// Of any length: activate and insert carry whole labels and texts, gesture its paths. nil when the
+// connection ends or the read times out before the newline.
+NSData *ReadLine(int fd) {
   NSMutableData *line = [NSMutableData data];
   char buf[4096];
   for (;;) {
@@ -43,14 +46,23 @@ NSString *ReadLine(int fd) {
     if (n <= 0) return nil;
     auto end = static_cast<const char *>(memchr(buf, '\n', static_cast<size_t>(n)));
     [line appendBytes:buf length:end ? static_cast<NSUInteger>(end - buf) : static_cast<NSUInteger>(n)];
-    if (end) return [[NSString alloc] initWithData:line encoding:NSUTF8StringEncoding];
+    if (end) return line;
   }
 }
 
 void Handle(int fd) {
-  NSString *line = ReadLine(fd);
-  if (!line.length) return;
-  if (!HandleAx(fd, line)) HandleTouch(fd, line);
+  NSData *data = ReadLine(fd);
+  if (!data) return;
+  NSString *line = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+  if (!line) return Fail(fd, @"the request isn't UTF-8");
+  if (HandleAx(fd, line) || HandleTouch(fd, line)) return;
+  // A gesture line missing its space would echo its whole JSON.
+  NSString *verb = [line componentsSeparatedByString:@" "][0];
+  if (verb.length > 32) {
+    NSUInteger cut = [verb rangeOfComposedCharacterSequenceAtIndex:32].location;
+    verb = [[verb substringToIndex:cut] stringByAppendingString:@"…"];
+  }
+  Fail(fd, [NSString stringWithFormat:@"unknown verb \"%@\"", verb]);
 }
 
 void *Serve(void *arg) {

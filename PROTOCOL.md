@@ -19,9 +19,12 @@ the contract between the agent and its clients. `uidrive.client.request` speaks 
 
 - Success: `{"ok": true, …}`, or the verb's own fields (`ls`, `settle`, `windows`).
 - A failure the agent can name: `{"error": "<text>"}`.
-- `touch`, `gesture`, `key` and `windows` answer every line whose first word is their verb; a
-  malformed one gets an `error`. For `ls`, `activate`, `insert`, `back`, `action`, `appearance` and
-  `settle`, a line that doesn't parse closes the connection unanswered, and so does an unknown verb.
+- Every request line gets a reply. A verb's line that doesn't parse gets an `error`: `usage: ` and
+  the verb's grammar, or one of the errors listed under `touch`, `gesture` and `key`. A first word
+  that names no verb gets `unknown verb "<word>"` (a word over 32 UTF-16 units is cut to at most 32,
+  never inside a character, and ends in `…`), and a line that isn't UTF-8 gets
+  `the request isn't UTF-8`.
+- A connection that ends, or stalls for 5 s, before the request's `\n` closes unanswered.
 - A reply holding NaN or infinity becomes `{"error": "the reply holds a value JSON can't carry"}`.
 
 ## The walk and element indexes
@@ -48,7 +51,8 @@ event carries the point rounded to whole points.
 
 These act without a touch. All but `ls` and `settle` queue their action on the main thread and
 reply without waiting for it, so a breakpoint the action hits can't block the reply; `settle`
-reports the action's result.
+reports the action's result. A line that doesn't parse gets `usage: ` and the verb's heading below,
+such as `usage: activate N "LABEL"`.
 
 ### `ls`
 
@@ -296,5 +300,6 @@ reply shape and the same verb names, so a check reads the same against both. Its
   bits; reply `{"ok": true, "handled": bool}`.
 - Two more verbs: `at N "LABEL"` gives element N's centre, `{"x", "y"}` in app window pixels, and
   `state N "LABEL"` gives `{"sensitive", "focused"}`.
-- No `action`, `appearance`, `windows` or `gesture`. A malformed `touch` or `key` closes the
-  connection unanswered.
+- No `action`, `appearance`, `windows` or `gesture`.
+- A line of any verb that doesn't parse, and an unknown verb, close the connection unanswered: no
+  `usage:` or `unknown verb` error.
